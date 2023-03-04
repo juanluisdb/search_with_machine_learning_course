@@ -236,22 +236,29 @@ class DataPrepper:
                                                 size=len(query_doc_ids), terms_field=terms_field)
         ##### Step Extract LTR Logged Features:
         # IMPLEMENT_START --
-        print("IMPLEMENT ME: __log_ltr_query_features: Extract log features out of the LTR:EXT response and place in a data frame")
+        response = self.opensearch.search(body=log_query, index=self.index_name)
         # Loop over the hits structure returned by running `log_query` and then extract out the features from the response per query_id and doc id.  Also capture and return all query/doc pairs that didn't return features
         # Your structure should look like the data frame below
+        # if response and response['hits']['hits'] and len(response['hits']['hits']) > 0:
         feature_results = {}
         feature_results["doc_id"] = []  # capture the doc id so we can join later
         feature_results["query_id"] = []  # ^^^
         feature_results["sku"] = []
-        feature_results["name_match"] = []
-        rng = np.random.default_rng(12345)
-        for doc_id in query_doc_ids:
-            feature_results["doc_id"].append(doc_id)  # capture the doc id so we can join later
-            feature_results["query_id"].append(query_id)
-            feature_results["sku"].append(doc_id)  
-            feature_results["name_match"].append(rng.random())
+        for hit in response['hits']['hits']:
+            feature_results["doc_id"].append(int(hit['_id']))
+            feature_results["sku"].append(int(hit['_source']['sku'][0]))
+            feature_results["query_id"].append(int(query_id))
+
+            for f in hit['fields']['_ltrlog'][0]['log_entry']:
+                name = f.get('name')
+                value = f.get('value', 0)
+                if name not in feature_results:
+                    feature_results[name] = []
+                feature_results[name].append(value)
+
         frame = pd.DataFrame(feature_results)
         return frame.astype({'doc_id': 'int64', 'query_id': 'int64', 'sku': 'int64'})
+
         # IMPLEMENT_END
 
     # Can try out normalizing data, but for XGb, you really don't have to since it is just finding splits

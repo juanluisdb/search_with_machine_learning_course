@@ -43,14 +43,34 @@ for child in root:
         categories.append(leaf_id)
         parents.append(cat_path_ids[-2])
 parents_df = pd.DataFrame(list(zip(categories, parents)), columns =['category', 'parent'])
+parents_map = dict(zip(parents_df['category'].tolist(), parents_df['parent'].tolist()))
+
 
 # Read the training data into pandas, only keeping queries with non-root categories in our category tree.
 queries_df = pd.read_csv(queries_file_name)[['category', 'query']]
 queries_df = queries_df[queries_df['category'].isin(categories)]
 
 # IMPLEMENT ME: Convert queries to lowercase, and optionally implement other normalization, like stemming.
+def query_preprocessing(query):
+    query = "".join([c if c.isalnum() else " " for c in query.lower()])
+    query = " ".join([stemmer.stem(w) for w in query.split()])
+    return query
+    
+queries_df['query'] = queries_df['query'].map(query_preprocessing)
 
 # IMPLEMENT ME: Roll up categories to ancestors to satisfy the minimum number of queries per category.
+
+queries_df['count'] = queries_df.groupby('category')['category'].transform('count')
+def replace_category_to_parent(row):
+    if row['count'] < min_queries:
+        row['category'] = parents_map[row['category']]
+    return row
+
+while len(queries_df[queries_df['count'] < min_queries]) > 0:
+    print('pruning')
+    queries_df = queries_df.apply(replace_category_to_parent, axis=1)
+    queries_df = queries_df[queries_df['category'].isin(categories)].reset_index(drop=True)
+    queries_df['count'] = queries_df.groupby('category')['category'].transform('count')
 
 # Create labels in fastText format.
 queries_df['label'] = '__label__' + queries_df['category']

@@ -13,10 +13,22 @@ import fileinput
 import logging
 import sys
 
+import fasttext
+import nltk
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logging.basicConfig(format='%(levelname)s:%(message)s')
+
+stemmer = nltk.stem.PorterStemmer()
+
+fasttext_model = fasttext.load_model("/workspace/search_with_machine_learning_course/query_classifier_400.bin")
+category_threshold = 0.0
+
+def query_preprocessing(query):
+    query = "".join([c if c.isalnum() else " " for c in query.lower()])
+    query = " ".join([stemmer.stem(w) for w in query.split()])
+    return query
 
 # expects clicks and impressions to be in the row
 def create_prior_queries_from_group(
@@ -50,7 +62,17 @@ def create_prior_queries(doc_ids, doc_id_weights,
 
 
 # Hardcoded query here.  Better to use search templates or other query config.
-def create_query(user_query, click_prior_query, filters, sort="_score", sortDir="desc", size=10, source=None, use_synonyms=False):
+def create_query(user_query, click_prior_query, filters, sort="_score", sortDir="desc", size=10, source=None, use_synonyms=False, categories=None):
+    
+    filters = []
+    if categories:
+        cat_filter = {
+            "terms": {
+                "categoryPathIds.keyword": categories
+            }
+        }
+        filters.append(cat_filter)
+    
     query_obj = {
         'size': size,
         "sort": [
@@ -188,12 +210,31 @@ def create_query(user_query, click_prior_query, filters, sort="_score", sortDir=
     print(query_obj)
     return query_obj
 
+def predict_categories(query: str):
+
+    query = query_preprocessing(query)
+    categories, probs = fasttext_model.predict(query, k=5)
+    print('######')
+    print(categories)
+    print(probs)
+    print('######')
+    
+    category_list = []
+
+    for i in range(len(categories)):
+        if probs[i] > category_threshold:
+            curr_cat = categories[i].replace("__label__", "")
+            category_list.append(curr_cat)
+        else:
+            break
+    return category_list
 
 def search(client, user_query, index="bbuy_products", sort="_score", sortDir="desc", use_synonyms=False):
     #### W3: classify the query
+    categories = predict_categories(user_query)
     #### W3: create filters and boosts
     # Note: you may also want to modify the `create_query` method above
-    query_obj = create_query(user_query, click_prior_query=None, filters=[], sort=sort, sortDir=sortDir, source=["name", "shortDescription"], use_synonyms=use_synonyms)
+    query_obj = create_query(user_query, click_prior_query=None, filters=[], sort=sort, sortDir=sortDir, source=["name", "shortDescription"], use_synonyms=use_synonyms, categories=categories)
     logging.info(query_obj)
     response = client.search(query_obj, index=index)
     if response and response['hits']['hits'] and len(response['hits']['hits']) > 0:
